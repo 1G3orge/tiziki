@@ -83,33 +83,49 @@ def store_payment():
             "PartyB": SHORTCODE,
             "PhoneNumber": phone,
             "CallBackURL": CALLBACK_URL,
-            "AccountReference": "TIZIKI",
+            "AccountReference": phone,
             "TransactionDesc": f"Tiziki WiFi - {amount} KES"
         }
 
         response = requests.post(MPESA_BASE_URL, json=payload, headers=headers)
         res_data = response.json()
 
-        if response.status_code == 200 and res_data.get("ResponseCode") == "0":
-            # ✅ Log to Google Sheets
-            if sheet:
-                try:
-                    sheet.append_row([phone, duration, amount, ip, timestamp, "✅ Payment Request Sent"])
-                except Exception as e:
-                    print("❌ Failed to log to Google Sheets:", e)
+        status_text = "✅ Payment Request Sent" if response.status_code == 200 and res_data.get("ResponseCode") == "0" else "❌ STK Push Failed"
 
+        if sheet:
+            try:
+                sheet.append_row([phone, duration, amount, ip, timestamp, status_text])
+            except Exception as e:
+                print("❌ Google Sheets Logging Error:", e)
+
+        if response.status_code == 200 and res_data.get("ResponseCode") == "0":
             return jsonify({"status": "success", "message": "STK push sent to phone"})
         else:
-            if sheet:
-                try:
-                    sheet.append_row([phone, duration, amount, ip, timestamp, "❌ STK Push Failed"])
-                except Exception as e:
-                    print("❌ Failed to log failed transaction to Google Sheets:", e)
-
             return jsonify({"status": "error", "message": "STK push failed", "details": res_data}), 500
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/mpesa/callback', methods=['POST'])
+def mpesa_callback():
+    try:
+        callback_data = request.get_json()
+        print("📥 M-Pesa Callback:", json.dumps(callback_data, indent=2))
+
+        result_code = callback_data.get("Body", {}).get("stkCallback", {}).get("ResultCode")
+        phone = callback_data.get("Body", {}).get("stkCallback", {}).get("CallbackMetadata", {}).get("Item", [{}])[0].get("Value")
+
+        if sheet and result_code == 0:
+            # Optional enhancement: update existing row or append confirmation
+            try:
+                sheet.append_row([phone, "-", "-", "-", datetime.now().isoformat(), "✅ Payment Confirmed"])
+            except Exception as e:
+                print("❌ Callback logging error:", e)
+
+        return jsonify({"ResultCode": 0, "ResultDesc": "Success"})
+    except Exception as e:
+        print("❌ Callback error:", e)
+        return jsonify({"ResultCode": 1, "ResultDesc": "Failed"})
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)
