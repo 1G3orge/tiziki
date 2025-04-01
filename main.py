@@ -7,6 +7,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import os
 import json
+import threading
+import time
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS
@@ -50,6 +52,17 @@ def generate_password():
     password = base64.b64encode(data.encode()).decode()
     return password, timestamp
 
+def update_status_after_delay(phone, delay=10):
+    time.sleep(delay)
+    if sheet:
+        try:
+            cell = sheet.find(phone)
+            status_cell = sheet.cell(cell.row, 7).value  # Status cell
+            if status_cell == "Pending":
+                sheet.update_cell(cell.row, 7, "❌ Not Received")
+        except Exception as e:
+            print("❌ Status update error:", e)
+
 @app.route('/store_payment', methods=['POST'])
 def store_payment():
     try:
@@ -83,7 +96,7 @@ def store_payment():
             "PartyB": SHORTCODE,
             "PhoneNumber": phone,
             "CallBackURL": CALLBACK_URL,
-            "AccountReference": "TIZIKI",
+            "AccountReference": "TIZIKI WIFI ACCESS",
             "TransactionDesc": f"Tiziki WiFi - {amount} KES"
         }
 
@@ -95,6 +108,7 @@ def store_payment():
         if sheet:
             try:
                 sheet.append_row([phone, duration, amount, ip, timestamp, status_text, "Pending"])
+                threading.Thread(target=update_status_after_delay, args=(phone,), daemon=True).start()
             except Exception as e:
                 print("❌ Google Sheets Logging Error:", e)
 
@@ -128,7 +142,9 @@ def mpesa_callback():
 
         if sheet and phone:
             try:
-                sheet.append_row([phone, "-", amount, "-", datetime.now().isoformat(), status, "Confirmed"])
+                cell = sheet.find(phone)
+                sheet.update_cell(cell.row, 6, status)  # Update Status column
+                sheet.update_cell(cell.row, 7, "Confirmed")  # Update Confirmation column
             except Exception as e:
                 print("❌ Callback logging error:", e)
 
