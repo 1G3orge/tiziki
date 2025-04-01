@@ -83,8 +83,8 @@ def store_payment():
             "PartyB": SHORTCODE,
             "PhoneNumber": phone,
             "CallBackURL": CALLBACK_URL,
-            "AccountReference": phone,
-            "TransactionDesc": f"Tiziki WiFi - {amount} KES"
+            "AccountReference": "Tiziki Music HQ",
+            "TransactionDesc": f"Tiziki Music HQ - {amount} KES"
         }
 
         response = requests.post(MPESA_BASE_URL, json=payload, headers=headers)
