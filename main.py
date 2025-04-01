@@ -83,8 +83,8 @@ def store_payment():
             "PartyB": SHORTCODE,
             "PhoneNumber": phone,
             "CallBackURL": CALLBACK_URL,
-            "AccountReference": "Tiziki Music HQ",
-            "TransactionDesc": f"Tiziki Music HQ - {amount} KES"
+            "AccountReference": "TIZIKI",
+            "TransactionDesc": f"Tiziki WiFi - {amount} KES"
         }
 
         response = requests.post(MPESA_BASE_URL, json=payload, headers=headers)
@@ -94,7 +94,7 @@ def store_payment():
 
         if sheet:
             try:
-                sheet.append_row([phone, duration, amount, ip, timestamp, status_text])
+                sheet.append_row([phone, duration, amount, ip, timestamp, status_text, "Pending"])
             except Exception as e:
                 print("❌ Google Sheets Logging Error:", e)
 
@@ -112,13 +112,23 @@ def mpesa_callback():
         callback_data = request.get_json()
         print("📥 M-Pesa Callback:", json.dumps(callback_data, indent=2))
 
-        result_code = callback_data.get("Body", {}).get("stkCallback", {}).get("ResultCode")
-        phone = callback_data.get("Body", {}).get("stkCallback", {}).get("CallbackMetadata", {}).get("Item", [{}])[0].get("Value")
+        stk = callback_data.get("Body", {}).get("stkCallback", {})
+        result_code = stk.get("ResultCode")
+        metadata = stk.get("CallbackMetadata", {}).get("Item", [])
+        phone = ""
+        amount = ""
 
-        if sheet and result_code == 0:
-            # Optional enhancement: update existing row or append confirmation
+        for item in metadata:
+            if item.get("Name") == "PhoneNumber":
+                phone = str(item.get("Value"))
+            elif item.get("Name") == "Amount":
+                amount = item.get("Value")
+
+        status = "✅ Payment Confirmed" if result_code == 0 else "❌ Payment Failed"
+
+        if sheet and phone:
             try:
-                sheet.append_row([phone, "-", "-", "-", datetime.now().isoformat(), "✅ Payment Confirmed"])
+                sheet.append_row([phone, "-", amount, "-", datetime.now().isoformat(), status, "Confirmed"])
             except Exception as e:
                 print("❌ Callback logging error:", e)
 
