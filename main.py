@@ -173,6 +173,7 @@ def mpesa_callback():
 
         phone = None
         amount = None
+        row_to_update = None
 
         if result_code == 0:
             metadata = stk.get("CallbackMetadata", {}).get("Item", [])
@@ -189,22 +190,28 @@ def mpesa_callback():
 
         if sheet:
             try:
+                # ✅ Try match by phone first
                 if phone:
-                    cell = sheet.find(phone)
-                else:
-                    # Fallback: find the most recent "Pending" row
+                    try:
+                        cell = sheet.find(phone)
+                        row_to_update = cell.row
+                    except:
+                        print("⚠️ Phone not found in sheet — will try fallback.")
+
+                # ✅ Fallback: most recent 'Pending'
+                if row_to_update is None:
                     records = sheet.get_all_values()
-                    Result_Description = None
                     for i in range(len(records) - 1, 0, -1):
                         if len(records[i]) >= 7 and records[i][6].strip().lower() == "pending":
-                            Result_Description = i + 1  # because sheet rows start at 1
+                            row_to_update = i + 1
                             break
 
-                if Result_Description:
-                    sheet.update_cell(cell.row, 6, status_text)       # Column 6: Status
-                    sheet.update_cell(cell.row, 7, payment_status)    # Column 7: Confirmed / Failed
-                    sheet.update_cell(cell.row, 8, result_desc)       # Column 8: Result Description
-                    print(f"📝 Sheet updated using fallback row {Result_Description}")
+                # ✅ Perform the update
+                if row_to_update:
+                    sheet.update_cell(row_to_update, 6, status_text)
+                    sheet.update_cell(row_to_update, 7, payment_status)
+                    sheet.update_cell(row_to_update, 8, result_desc)
+                    print(f"📝 Sheet updated at row {row_to_update}: {payment_status} | {result_desc}")
                 else:
                     print("⚠️ No matching row found in sheet to update.")
 
@@ -218,6 +225,7 @@ def mpesa_callback():
     except Exception as e:
         print("❌ Callback error:", e)
         return jsonify({"ResultCode": 1, "ResultDesc": "Callback failed"})
+
 
 @app.route('/transaction_status', methods=['POST'])
 def transaction_status():
