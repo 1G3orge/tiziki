@@ -16,7 +16,8 @@ CORS(app)  # Enable CORS
 # ✅ M-Pesa Configuration (Live)
 MPESA_BASE_URL = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
 TOKEN_URL = "https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
-SHORTCODE = "5346268"
+SHORTCODE = "5346268"           # Head Office shortcode
+TILL_NUMBER = "4498236"         # Store Till number
 PASSKEY = "8d9756e6f0e08473b287b4bdc1e8a745d0a28d222a55482fd236fdd6d51c92b2"
 CALLBACK_URL = "https://web-production-929d5.up.railway.app/mpesa/callback"
 CONSUMER_KEY = "BAqAD0MtDAfXBTbwLqzhmgSszUo6YV10p6Ly91dndfH41mR8"
@@ -85,15 +86,14 @@ def store_payment():
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
-
         payload = {
             "BusinessShortCode": SHORTCODE,
             "Password": password,
             "Timestamp": stk_timestamp,
-            "TransactionType": "CustomerPayBillOnline",
+            "TransactionType": "CustomerBuyGoodsOnline",
             "Amount": amount,
             "PartyA": phone,
-            "PartyB": SHORTCODE,
+            "PartyB": TILL_NUMBER,
             "PhoneNumber": phone,
             "CallBackURL": CALLBACK_URL,
             "AccountReference": "TIZIKI WIFI ACCESS",
@@ -144,7 +144,7 @@ def mpesa_callback():
             try:
                 cell = sheet.find(phone)
                 sheet.update_cell(cell.row, 6, status)  # Update Status column
-                sheet.update_cell(cell.row, 7, "Confirmed")  # Update Confirmation column
+                sheet.update_cell(cell.row, 7, "Confirmed" if result_code == 0 else "Failed")
             except Exception as e:
                 print("❌ Callback logging error:", e)
 
