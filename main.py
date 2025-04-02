@@ -15,6 +15,7 @@ CORS(app)  # Enable CORS
 
 # ✅ M-Pesa Configuration (Live)
 MPESA_BASE_URL = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+TRANSACTION_STATUS_URL = "https://api.safaricom.co.ke/mpesa/transactionstatus/v1/query"
 TOKEN_URL = "https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
 SHORTCODE = "5346268"           # Head Office shortcode
 TILL_NUMBER = "4498236"         # Store Till number
@@ -22,6 +23,8 @@ PASSKEY = "8d9756e6f0e08473b287b4bdc1e8a745d0a28d222a55482fd236fdd6d51c92b2"
 CALLBACK_URL = "https://web-production-929d5.up.railway.app/mpesa/callback"
 CONSUMER_KEY = "BAqAD0MtDAfXBTbwLqzhmgSszUo6YV10p6Ly91dndfH41mR8"
 CONSUMER_SECRET = "6B6N674G2LYva5h4rueE7tisiKmAhePGW3SRBQCtZg8i0YWArS5ihtcpFnAJ8Z08"
+INITIATOR_NAME = "testapiuser"
+SECURITY_CREDENTIAL = "ClONZiMYBpc65lmpJ7nvnrDmUe0WvHvA5QbOsPjEo92B6IGFwDdvdeJIFL0kgwsEKWu6SQKG4ZZUxjC"
 
 # ✅ Google Sheets Logging
 SCOPES = [
@@ -53,7 +56,41 @@ def generate_password():
     password = base64.b64encode(data.encode()).decode()
     return password, timestamp
 
-def update_status_after_delay(phone, delay=10):
+def query_transaction_status(transaction_id, phone):
+    try:
+        token = get_access_token()
+        if not token:
+            print("❌ Failed to get access token for transaction status check.")
+            return
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "Initiator": INITIATOR_NAME,
+            "SecurityCredential": SECURITY_CREDENTIAL,
+            "CommandID": "TransactionStatusQuery",
+            "TransactionID": transaction_id,
+            "PartyA": SHORTCODE,
+            "IdentifierType": "4",
+            "ResultURL": CALLBACK_URL,
+            "QueueTimeOutURL": CALLBACK_URL,
+            "Remarks": "Check Transaction",
+            "Occasion": "AutoStatusCheck",
+            "OriginatorConversationID": f"AUTO_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        }
+
+        response = requests.post(TRANSACTION_STATUS_URL, json=payload, headers=headers)
+        print("🔄 Transaction Status Response:", response.json())
+
+        # Optionally update Google Sheet here if response includes confirmation
+
+    except Exception as e:
+        print("❌ Error checking transaction status:", e)
+
+def update_status_after_delay(phone, transaction_id=None, delay=10):
     time.sleep(delay)
     if sheet:
         try:
@@ -61,6 +98,8 @@ def update_status_after_delay(phone, delay=10):
             status_cell = sheet.cell(cell.row, 7).value  # Status cell
             if status_cell == "Pending":
                 sheet.update_cell(cell.row, 7, "❌ Not Received")
+                if transaction_id:
+                    query_transaction_status(transaction_id, phone)
         except Exception as e:
             print("❌ Status update error:", e)
 
@@ -105,16 +144,17 @@ def store_payment():
         res_data = response.json()
 
         status_text = "✅ Payment Request Sent" if response.status_code == 200 and res_data.get("ResponseCode") == "0" else "❌ STK Push Failed"
+        merchant_request_id = res_data.get("MerchantRequestID")
 
         if sheet:
             try:
                 sheet.append_row([phone, duration, amount, ip, timestamp, status_text, "Pending"])
-                threading.Thread(target=update_status_after_delay, args=(phone,), daemon=True).start()
+                threading.Thread(target=update_status_after_delay, args=(phone, merchant_request_id), daemon=True).start()
             except Exception as e:
                 print("❌ Google Sheets Logging Error:", e)
 
         if response.status_code == 200 and res_data.get("ResponseCode") == "0":
-            return jsonify({"status": "success", "message": "STK push sent to phone"})
+            return jsonify({"status": "success", "message": "STK push sent to phone", "MerchantRequestID": merchant_request_id})
         else:
             return jsonify({"status": "error", "message": "STK push failed", "details": res_data}), 500
 
@@ -153,6 +193,44 @@ def mpesa_callback():
     except Exception as e:
         print("❌ Callback error:", e)
         return jsonify({"ResultCode": 1, "ResultDesc": "Failed"})
+
+@app.route('/transaction_status', methods=['POST'])
+def transaction_status():
+    try:
+        data = request.get_json()
+        transaction_id = data.get("TransactionID")
+        originator_conversation_id = data.get("OriginatorConversationID") or "AG_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if not transaction_id:
+            return jsonify({"status": "error", "message": "Missing Transaction ID"}), 400
+
+        token = get_access_token()
+        if not token:
+            return jsonify({"status": "error", "message": "Access token failed"}), 500
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "Initiator": INITIATOR_NAME,
+            "SecurityCredential": SECURITY_CREDENTIAL,
+            "CommandID": "TransactionStatusQuery",
+            "TransactionID": transaction_id,
+            "PartyA": SHORTCODE,
+            "IdentifierType": "4",
+            "ResultURL": CALLBACK_URL,
+            "QueueTimeOutURL": CALLBACK_URL,
+            "Remarks": "OK",
+            "Occasion": "TizikiCheck",
+            "OriginatorConversationID": originator_conversation_id
+        }
+
+        response = requests.post(TRANSACTION_STATUS_URL, json=payload, headers=headers)
+        return jsonify(response.json())
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)
