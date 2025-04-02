@@ -174,7 +174,6 @@ def mpesa_callback():
         phone = None
         amount = None
 
-        # Only present if ResultCode == 0
         if result_code == 0:
             metadata = stk.get("CallbackMetadata", {}).get("Item", [])
             for item in metadata:
@@ -188,25 +187,37 @@ def mpesa_callback():
         status_text = "✅ Payment Confirmed" if result_code == 0 else "❌ Payment Failed"
         payment_status = "Confirmed" if result_code == 0 else "Failed"
 
-        if sheet and phone:
+        if sheet:
             try:
-                cell = sheet.find(phone)
-                sheet.update_cell(cell.row, 6, status_text)         # Status column
-                sheet.update_cell(cell.row, 7, payment_status)      # Payment Status column
-                sheet.update_cell(cell.row, 8, result_desc)         # ResultDescription column
-                print(f"📝 Sheet updated for {phone}: {status_text} | {result_desc}")
+                if phone:
+                    cell = sheet.find(phone)
+                else:
+                    # Fallback: find the most recent "Pending" row
+                    records = sheet.get_all_values()
+                    cell = None
+                    for i in range(len(records) - 1, 0, -1):
+                        if len(records[i]) >= 7 and records[i][6].strip().lower() == "pending":
+                            cell = gspread.models.Cell(i + 1, 7, "")
+                            break
+
+                if cell:
+                    sheet.update_cell(cell.row, 6, status_text)       # Column 6: Status
+                    sheet.update_cell(cell.row, 7, payment_status)    # Column 7: Confirmed / Failed
+                    sheet.update_cell(cell.row, 8, result_desc)       # Column 8: Result Description
+                    print(f"📝 Sheet updated: Row {cell.row} → {status_text} | {result_desc}")
+                else:
+                    print("⚠️ No matching row found in sheet to update.")
+
             except Exception as e:
                 print("❌ Google Sheets update error:", e)
         else:
-            print("ℹ️ No phone number found or sheet unavailable — skipping sheet update.")
+            print("ℹ️ Sheet unavailable — skipping update.")
 
         return jsonify({"ResultCode": 0, "ResultDesc": "Callback handled successfully"})
 
     except Exception as e:
         print("❌ Callback error:", e)
         return jsonify({"ResultCode": 1, "ResultDesc": "Callback failed"})
-
-
 
 @app.route('/transaction_status', methods=['POST'])
 def transaction_status():
