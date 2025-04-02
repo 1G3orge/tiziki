@@ -164,35 +164,49 @@ def store_payment():
 @app.route('/mpesa/callback', methods=['POST'])
 def mpesa_callback():
     try:
-        callback_data = request.get_json()
+        callback_data = request.get_json(force=True)
         print("📥 M-Pesa Callback:", json.dumps(callback_data, indent=2))
 
         stk = callback_data.get("Body", {}).get("stkCallback", {})
-        result_code = stk.get("ResultCode")
-        metadata = stk.get("CallbackMetadata", {}).get("Item", [])
-        phone = ""
-        amount = ""
+        result_code = stk.get("ResultCode", -1)
+        result_desc = stk.get("ResultDesc", "No description provided")
 
-        for item in metadata:
-            if item.get("Name") == "PhoneNumber":
-                phone = str(item.get("Value"))
-            elif item.get("Name") == "Amount":
-                amount = item.get("Value")
+        phone = None
+        amount = None
 
-        status = "✅ Payment Confirmed" if result_code == 0 else "❌ Payment Failed"
+        # Only present if ResultCode == 0
+        if result_code == 0:
+            metadata = stk.get("CallbackMetadata", {}).get("Item", [])
+            for item in metadata:
+                if item.get("Name") == "PhoneNumber":
+                    phone = str(item.get("Value"))
+                elif item.get("Name") == "Amount":
+                    amount = item.get("Value")
+        else:
+            print("⚠️ Transaction failed — no CallbackMetadata returned.")
+
+        status_text = "✅ Payment Confirmed" if result_code == 0 else "❌ Payment Failed"
+        payment_status = "Confirmed" if result_code == 0 else "Failed"
 
         if sheet and phone:
             try:
                 cell = sheet.find(phone)
-                sheet.update_cell(cell.row, 6, status)  # Update Status column
-                sheet.update_cell(cell.row, 7, "Confirmed" if result_code == 0 else "Failed")
+                sheet.update_cell(cell.row, 6, status_text)         # Status column
+                sheet.update_cell(cell.row, 7, payment_status)      # Payment Status column
+                sheet.update_cell(cell.row, 8, result_desc)         # ResultDescription column
+                print(f"📝 Sheet updated for {phone}: {status_text} | {result_desc}")
             except Exception as e:
-                print("❌ Callback logging error:", e)
+                print("❌ Google Sheets update error:", e)
+        else:
+            print("ℹ️ No phone number found or sheet unavailable — skipping sheet update.")
 
-        return jsonify({"ResultCode": 0, "ResultDesc": "Success"})
+        return jsonify({"ResultCode": 0, "ResultDesc": "Callback handled successfully"})
+
     except Exception as e:
         print("❌ Callback error:", e)
-        return jsonify({"ResultCode": 1, "ResultDesc": "Failed"})
+        return jsonify({"ResultCode": 1, "ResultDesc": "Callback failed"})
+
+
 
 @app.route('/transaction_status', methods=['POST'])
 def transaction_status():
@@ -238,14 +252,21 @@ def check_status():
         data = request.get_json()
         phone = data.get("phone_number")
         if not phone or not sheet:
-            return jsonify({"status": "error", "message": "Missing phone number or Google Sheet unavailable"}), 400
+            return jsonify({"status": "error", "message": "Missing phone number or sheet unavailable"}), 400
 
         cell = sheet.find(phone)
-        status = sheet.cell(cell.row, 7).value  # Column 7 = Payment Status
-        return jsonify({"status": "success", "payment_status": status})
+        status = sheet.cell(cell.row, 7).value  # Payment Status column
+        result_desc = sheet.cell(cell.row, 8).value  # ResultDescription column
+
+        return jsonify({
+          "status": "success",
+          "payment_status": status,
+          "result_description": result_desc
+        })
     except Exception as e:
         print("❌ /check_status error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)
