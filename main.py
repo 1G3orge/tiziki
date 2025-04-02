@@ -204,10 +204,18 @@ def mpesa_callback():
                         break
 
             if row_to_update:
-                sheet.update_cell(row_to_update, 6, status_text)
-                sheet.update_cell(row_to_update, 7, payment_status)
-                sheet.update_cell(row_to_update, 8, result_description)
-                print(f"✅ Updated row {row_to_update} → {payment_status} | {result_description}")
+                values = sheet.row_values(row_to_update)
+                while len(values) < 8:
+                    values.append("")  # Ensure at least 8 columns
+
+                values[5] = status_text
+                values[6] = payment_status
+                values[7] = result_description
+
+                # Overwrite the full row to force Google Sheets to apply the changes
+                sheet.update(f"A{row_to_update}:H{row_to_update}", [values])
+                print(f"✅ Forced update on row {row_to_update} → {payment_status} | {result_description}")
+
             else:
                 print("⚠️ No matching row found.")
 
