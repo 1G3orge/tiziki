@@ -23,12 +23,16 @@ SHEET_NAME = "Tiziki WiFi Data"
 SERVICE_ACCOUNT_FILE = "google-credentials.json"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-creds = Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-)
-client = gspread.authorize(creds)
-sheet = client.open(SHEET_NAME).sheet1
-
+try:
+    creds = Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE, scopes=SCOPES
+    )
+    client = gspread.authorize(creds)
+    sheet = client.open(SHEET_NAME).sheet1
+except Exception as google_auth_error:
+    sheet = None
+    print("❌ Error connecting to Google Sheets:", google_auth_error)
+    print("⚠️ Ensure 'google-credentials.json' is present and valid in this environment.")
 
 def get_access_token():
     try:
@@ -38,13 +42,11 @@ def get_access_token():
         print("Token error:", e)
         return None
 
-
 def generate_password():
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     data = SHORTCODE + PASSKEY + timestamp
     password = base64.b64encode(data.encode()).decode()
     return password, timestamp
-
 
 @app.route('/store_payment', methods=['POST'])
 def store_payment():
@@ -86,11 +88,13 @@ def store_payment():
         response = requests.post(MPESA_BASE_URL, json=payload, headers=headers)
         res_data = response.json()
 
-        # Log to Google Sheet
-        try:
-            sheet.append_row([phone, amount, option_type, duration, ip, timestamp, "Pending"])
-        except Exception as e:
-            print("❌ Google Sheets Logging Error:", e)
+        # Log to Google Sheet with error handling
+        if sheet:
+            try:
+                sheet.append_row([phone, amount, option_type, duration, ip, timestamp, "Pending"])
+            except Exception as sheet_error:
+                print("❌ Google Sheets Logging Error:", sheet_error)
+                print("⚠️ This may be due to quota limits, auth issues, or locked sheet")
 
         if response.status_code == 200 and res_data.get("ResponseCode") == "0":
             return jsonify({"status": "success", "message": "STK push sent"})
@@ -99,7 +103,6 @@ def store_payment():
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0", port=8080)
