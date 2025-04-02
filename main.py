@@ -257,11 +257,11 @@ def transaction_status():
 def check_status():
     try:
         data = request.get_json()
-        phone = data.get("phone_number")
-        if not phone or not sheet:
-            return jsonify({"status": "error", "message": "Missing phone number or sheet unavailable"}), 400
+        merchant_request_id = data.get("merchant_request_id")
+        if not merchant_request_id or not sheet:
+            return jsonify({"status": "error", "message": "Missing merchant_request_id or sheet unavailable"}), 400
 
-        cell = sheet.find(phone)
+        cell = sheet.find(merchant_request_id)
         status = sheet.cell(cell.row, 7).value  # Payment Status column
         result_desc = sheet.cell(cell.row, 8).value  # ResultDescription column
 
@@ -273,6 +273,7 @@ def check_status():
     except Exception as e:
         print("❌ /check_status error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 if __name__ == "__main__":
