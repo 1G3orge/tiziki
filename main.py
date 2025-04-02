@@ -165,7 +165,7 @@ def store_payment():
 def mpesa_callback():
     try:
         callback_data = request.get_json(force=True)
-        print("📥 M-Pesa Callback:", json.dumps(callback_data, indent=2))
+        print("\ud83d\udce5 M-Pesa Callback:", json.dumps(callback_data, indent=2))
 
         stk = callback_data.get("Body", {}).get("stkCallback", {})
         result_code = stk.get("ResultCode", -1)
@@ -175,6 +175,10 @@ def mpesa_callback():
         amount = None
         row_to_update = None
 
+        # 🔍 Debugging info
+        print(f"\ud83d\udd0d ResultCode: {result_code}")
+        print(f"\ud83d\udd0d ResultDesc: {result_desc}")
+
         if result_code == 0:
             metadata = stk.get("CallbackMetadata", {}).get("Item", [])
             for item in metadata:
@@ -182,23 +186,23 @@ def mpesa_callback():
                     phone = str(item.get("Value"))
                 elif item.get("Name") == "Amount":
                     amount = item.get("Value")
+            print(f"\ud83d\udd0d Phone found in callback: {phone}")
         else:
-            print("⚠️ Transaction failed — no CallbackMetadata returned.")
+            print("\u26a0\ufe0f Transaction failed \u2014 no CallbackMetadata returned.")
 
-        status_text = "✅ Payment Confirmed" if result_code == 0 else "❌ Payment Failed"
+        status_text = "Success" if result_code == 0 else "\u274c Payment Failed"
         payment_status = "Confirmed" if result_code == 0 else "Failed"
 
         if sheet:
             try:
-                # ✅ Try match by phone first
                 if phone:
                     try:
                         cell = sheet.find(phone)
                         row_to_update = cell.row
+                        print(f"\u2705 Matched row by phone: {row_to_update}")
                     except:
-                        print("⚠️ Phone not found in sheet — will try fallback.")
+                        print("\u26a0\ufe0f Phone number not found in sheet. Will try fallback.")
 
-                # ✅ Fallback: most recent 'Pending'
                 if row_to_update is None:
                     records = sheet.get_all_values()
                     for i in range(len(records) - 1, 0, -1):
@@ -206,24 +210,23 @@ def mpesa_callback():
                             row_to_update = i + 1
                             break
 
-                # ✅ Perform the update
                 if row_to_update:
                     sheet.update_cell(row_to_update, 6, status_text)
                     sheet.update_cell(row_to_update, 7, payment_status)
                     sheet.update_cell(row_to_update, 8, result_desc)
-                    print(f"📝 Sheet updated at row {row_to_update}: {payment_status} | {result_desc}")
+                    print(f"\ud83d\udcdd Sheet updated at row {row_to_update}: {payment_status} | {result_desc}")
                 else:
-                    print("⚠️ No matching row found in sheet to update.")
+                    print("\u26a0\ufe0f No matching row found in sheet to update.")
 
             except Exception as e:
-                print("❌ Google Sheets update error:", e)
+                print("\u274c Google Sheets update error:", e)
         else:
-            print("ℹ️ Sheet unavailable — skipping update.")
+            print("\u2139\ufe0f Sheet unavailable \u2014 skipping update.")
 
         return jsonify({"ResultCode": 0, "ResultDesc": "Callback handled successfully"})
 
     except Exception as e:
-        print("❌ Callback error:", e)
+        print("\u274c Callback error:", e)
         return jsonify({"ResultCode": 1, "ResultDesc": "Callback failed"})
 
 
