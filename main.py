@@ -194,17 +194,17 @@ def mpesa_callback():
                 else:
                     # Fallback: find the most recent "Pending" row
                     records = sheet.get_all_values()
-                    cell = None
+                    fallback_row = None
                     for i in range(len(records) - 1, 0, -1):
                         if len(records[i]) >= 7 and records[i][6].strip().lower() == "pending":
-                            cell = gspread.models.Cell(i + 1, 7, "")
+                            fallback_row = i + 1  # because sheet rows start at 1
                             break
 
-                if cell:
+                if fallback_row:
                     sheet.update_cell(cell.row, 6, status_text)       # Column 6: Status
                     sheet.update_cell(cell.row, 7, payment_status)    # Column 7: Confirmed / Failed
                     sheet.update_cell(cell.row, 8, result_desc)       # Column 8: Result Description
-                    print(f"📝 Sheet updated: Row {cell.row} → {status_text} | {result_desc}")
+                    print(f"📝 Sheet updated using fallback row {fallback_row}")
                 else:
                     print("⚠️ No matching row found in sheet to update.")
 
