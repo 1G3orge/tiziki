@@ -231,6 +231,21 @@ def transaction_status():
         return jsonify(response.json())
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+    
+@app.route('/check_status', methods=['POST'])
+def check_status():
+    try:
+        data = request.get_json()
+        phone = data.get("phone_number")
+        if not phone or not sheet:
+            return jsonify({"status": "error", "message": "Missing phone number or Google Sheet unavailable"}), 400
+
+        cell = sheet.find(phone)
+        status = sheet.cell(cell.row, 7).value  # Column 7 = Payment Status
+        return jsonify({"status": "success", "payment_status": status})
+    except Exception as e:
+        print("❌ /check_status error:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)
