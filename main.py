@@ -103,6 +103,8 @@ def update_status_after_delay(phone, transaction_id=None, delay=10):
         except Exception as e:
             print("❌ Status update error:", e)
 
+### ✅ 1. Update in /store_payment to log MerchantRequestID to Google Sheet
+
 @app.route('/store_payment', methods=['POST'])
 def store_payment():
     try:
@@ -148,7 +150,7 @@ def store_payment():
 
         if sheet:
             try:
-                sheet.append_row([phone, duration, amount, ip, timestamp, status_text, "Pending"])
+                sheet.append_row([phone, duration, amount, ip, timestamp, status_text, "Pending", "", merchant_request_id])
                 threading.Thread(target=update_status_after_delay, args=(phone, merchant_request_id), daemon=True).start()
             except Exception as e:
                 print("❌ Google Sheets Logging Error:", e)
@@ -161,6 +163,9 @@ def store_payment():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+### ✅ 2. Update /mpesa/callback to find row by MerchantRequestID
+
 @app.route('/mpesa/callback', methods=['POST'])
 def mpesa_callback():
     try:
@@ -170,10 +175,10 @@ def mpesa_callback():
         stk = callback_data.get("Body", {}).get("stkCallback", {})
         result_code = stk.get("ResultCode", -1)
         result_desc = stk.get("ResultDesc", "No description provided")
+        merchant_request_id = stk.get("MerchantRequestID")
 
         phone = None
         amount = None
-        row_to_update = None
 
         if result_code == 0:
             metadata = stk.get("CallbackMetadata", {}).get("Item", [])
@@ -182,52 +187,33 @@ def mpesa_callback():
                     phone = str(item.get("Value"))
                 elif item.get("Name") == "Amount":
                     amount = item.get("Value")
+        else:
+            print("⚠️ Transaction failed — no CallbackMetadata returned.")
 
-        status_text = "✅ Payment Confirmed" if result_code == 0 else "❌ Payment Failed"
+        status_text = "Success" if result_code == 0 else "❌ Payment Failed"
         payment_status = "Confirmed" if result_code == 0 else "Failed"
-        result_description = "Success" if result_code == 0 else result_desc
 
-        if not sheet:
-            print("⚠️ Sheet not available.")
-            return jsonify({"ResultCode": 0, "ResultDesc": "Callback handled but sheet unavailable"})
-
-        try:
-            if phone:
-                cell = sheet.find(phone)
+        if sheet and merchant_request_id:
+            try:
+                cell = sheet.find(merchant_request_id)
                 row_to_update = cell.row
-            else:
-                # fallback to last Pending
-                records = sheet.get_all_values()
-                for i in range(len(records) - 1, 0, -1):
-                    if len(records[i]) >= 7 and records[i][6].strip().lower() == "pending":
-                        row_to_update = i + 1
-                        break
 
-            if row_to_update:
-                values = sheet.row_values(row_to_update)
-                while len(values) < 8:
-                    values.append("")  # Ensure at least 8 columns
+                sheet.update_cell(row_to_update, 6, status_text)
+                sheet.update_cell(row_to_update, 7, payment_status)
+                sheet.update_cell(row_to_update, 8, result_desc)
 
-                values[5] = status_text
-                values[6] = payment_status
-                values[7] = result_description
+                print(f"✅ Updated row {row_to_update} → {payment_status} | {result_desc}")
 
-                # Overwrite the full row to force Google Sheets to apply the changes
-                sheet.update(f"A{row_to_update}:H{row_to_update}", [values])
-                print(f"✅ Forced update on row {row_to_update} → {payment_status} | {result_description}")
+            except Exception as e:
+                print("❌ Google Sheets update error:", e)
+        else:
+            print("ℹ️ Sheet unavailable or MerchantRequestID missing — skipping update.")
 
-            else:
-                print("⚠️ No matching row found.")
-
-        except Exception as e:
-            print("❌ Google Sheets update error:", e)
-
-        return jsonify({"ResultCode": 0, "ResultDesc": "Callback handled"})
+        return jsonify({"ResultCode": 0, "ResultDesc": "Callback handled successfully"})
 
     except Exception as e:
         print("❌ Callback error:", e)
         return jsonify({"ResultCode": 1, "ResultDesc": "Callback failed"})
-
 
 @app.route('/transaction_status', methods=['POST'])
 def transaction_status():
