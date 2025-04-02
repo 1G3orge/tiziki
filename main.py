@@ -165,7 +165,7 @@ def store_payment():
 def mpesa_callback():
     try:
         callback_data = request.get_json(force=True)
-        print("\ud83d\udce5 M-Pesa Callback:", json.dumps(callback_data, indent=2))
+        print("📥 M-Pesa Callback:", json.dumps(callback_data, indent=2))
 
         stk = callback_data.get("Body", {}).get("stkCallback", {})
         result_code = stk.get("ResultCode", -1)
@@ -175,10 +175,6 @@ def mpesa_callback():
         amount = None
         row_to_update = None
 
-        # 🔍 Debugging info
-        print(f"\ud83d\udd0d ResultCode: {result_code}")
-        print(f"\ud83d\udd0d ResultDesc: {result_desc}")
-
         if result_code == 0:
             metadata = stk.get("CallbackMetadata", {}).get("Item", [])
             for item in metadata:
@@ -186,47 +182,42 @@ def mpesa_callback():
                     phone = str(item.get("Value"))
                 elif item.get("Name") == "Amount":
                     amount = item.get("Value")
-            print(f"\ud83d\udd0d Phone found in callback: {phone}")
-        else:
-            print("\u26a0\ufe0f Transaction failed \u2014 no CallbackMetadata returned.")
 
-        status_text = "Success" if result_code == 0 else "\u274c Payment Failed"
+        status_text = "✅ Payment Confirmed" if result_code == 0 else "❌ Payment Failed"
         payment_status = "Confirmed" if result_code == 0 else "Failed"
+        result_description = "Success" if result_code == 0 else result_desc
 
-        if sheet:
-            try:
-                if phone:
-                    try:
-                        cell = sheet.find(phone)
-                        row_to_update = cell.row
-                        print(f"\u2705 Matched row by phone: {row_to_update}")
-                    except:
-                        print("\u26a0\ufe0f Phone number not found in sheet. Will try fallback.")
+        if not sheet:
+            print("⚠️ Sheet not available.")
+            return jsonify({"ResultCode": 0, "ResultDesc": "Callback handled but sheet unavailable"})
 
-                if row_to_update is None:
-                    records = sheet.get_all_values()
-                    for i in range(len(records) - 1, 0, -1):
-                        if len(records[i]) >= 7 and records[i][6].strip().lower() == "pending":
-                            row_to_update = i + 1
-                            break
+        try:
+            if phone:
+                cell = sheet.find(phone)
+                row_to_update = cell.row
+            else:
+                # fallback to last Pending
+                records = sheet.get_all_values()
+                for i in range(len(records) - 1, 0, -1):
+                    if len(records[i]) >= 7 and records[i][6].strip().lower() == "pending":
+                        row_to_update = i + 1
+                        break
 
-                if row_to_update:
-                    sheet.update_cell(row_to_update, 6, status_text)
-                    sheet.update_cell(row_to_update, 7, payment_status)
-                    sheet.update_cell(row_to_update, 8, result_desc)
-                    print(f"\ud83d\udcdd Sheet updated at row {row_to_update}: {payment_status} | {result_desc}")
-                else:
-                    print("\u26a0\ufe0f No matching row found in sheet to update.")
+            if row_to_update:
+                sheet.update_cell(row_to_update, 6, status_text)
+                sheet.update_cell(row_to_update, 7, payment_status)
+                sheet.update_cell(row_to_update, 8, result_description)
+                print(f"✅ Updated row {row_to_update} → {payment_status} | {result_description}")
+            else:
+                print("⚠️ No matching row found.")
 
-            except Exception as e:
-                print("\u274c Google Sheets update error:", e)
-        else:
-            print("\u2139\ufe0f Sheet unavailable \u2014 skipping update.")
+        except Exception as e:
+            print("❌ Google Sheets update error:", e)
 
-        return jsonify({"ResultCode": 0, "ResultDesc": "Callback handled successfully"})
+        return jsonify({"ResultCode": 0, "ResultDesc": "Callback handled"})
 
     except Exception as e:
-        print("\u274c Callback error:", e)
+        print("❌ Callback error:", e)
         return jsonify({"ResultCode": 1, "ResultDesc": "Callback failed"})
 
 
