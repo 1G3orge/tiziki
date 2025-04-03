@@ -259,7 +259,7 @@ def check_status():
         data = request.get_json()
         merchant_request_id = data.get("merchant_request_id")
         if not merchant_request_id or not sheet:
-            return jsonify({"status": "error", "message": "Missing merchant_request_id or sheet unavailable"}), 400
+            return jsonify({"status": "error", "message": "Missing MerchantRequestID or sheet unavailable"}), 400
 
         cell = sheet.find(merchant_request_id)
         status = sheet.cell(cell.row, 7).value  # Payment Status column
@@ -282,21 +282,27 @@ def assign_voucher_from_sheet2():
         if not merchant_id or not sheet:
             return jsonify({"status": "error", "message": "Missing merchant ID or sheet unavailable"}), 400
 
-        # Access second sheet (sheet2)
+        # Get the voucher sheet (sheet2)
         voucher_sheet = client.open(SHEET_NAME).get_worksheet(1)
         vouchers = voucher_sheet.get_all_records()
 
-        # Find row in sheet1 (main log) by merchant ID
+        # Get the row in sheet1 by MerchantRequestID
         row = sheet.find(merchant_id).row
-        duration = sheet.cell(row, 2).value  # Assumes duration is in column 2
+        duration = str(sheet.cell(row, 2).value).strip().lower()
 
-        # Look for a matching unused voucher
+        # ✅ DEBUG PRINTS
+        print(f"Looking for: '{duration}'")
         for i, v in enumerate(vouchers, start=2):
-            if str(v.get("Duration")).lower() == duration.lower() and str(v.get("Used")).strip().lower() != "true":
+            print(f"Row {i}: Duration='{v.get('Duration')}', Used='{v.get('Used')}'")
+
+        for i, v in enumerate(vouchers, start=2):
+            voucher_duration = str(v.get("Duration")).strip().lower()
+            used = str(v.get("Used")).strip().lower()
+            if voucher_duration == duration and used not in ["true", "yes"]:
                 code = v.get("Code")
-                voucher_sheet.update_cell(i, 3, "TRUE")  # Column 3 = Used
-                sheet.update_cell(row, 10, code)         # Column 10 = Voucher
-                sheet.update_cell(row, 11, "linked")     # Column 11 = Voucher Status
+                voucher_sheet.update_cell(i, 3, "TRUE")
+                sheet.update_cell(row, 10, code)
+                sheet.update_cell(row, 11, "linked")
                 return jsonify({"status": "success", "voucher": code})
 
         return jsonify({"status": "error", "message": "No available voucher found"}), 404
@@ -304,6 +310,7 @@ def assign_voucher_from_sheet2():
     except Exception as e:
         print("❌ Voucher assignment error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 if __name__ == "__main__":
