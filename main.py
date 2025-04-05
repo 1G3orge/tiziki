@@ -311,10 +311,5 @@ def assign_voucher():
         print("❌ assign_voucher error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
-
-@app.route('/assign_voucher', methods=['POST'])
-def alias_assign_voucher():
-    return assign_voucher_from_sheet2()
-
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)
