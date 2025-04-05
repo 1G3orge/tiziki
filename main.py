@@ -274,44 +274,47 @@ def check_status():
         print("❌ /check_status error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/assign_voucher_from_sheet2', methods=['POST'])
-def assign_voucher_from_sheet2():
+@app.route('/assign_voucher', methods=['POST', 'OPTIONS'])
+def assign_voucher():
     try:
         data = request.get_json()
         merchant_id = data.get("merchant_request_id")
-        if not merchant_id or not sheet:
-            return jsonify({"status": "error", "message": "Missing merchant ID or sheet unavailable"}), 400
 
-        # Get the voucher sheet (sheet2)
-        voucher_sheet = client.open(SHEET_NAME).get_worksheet(1)
-        vouchers = voucher_sheet.get_all_records()
+        if not merchant_id:
+            return jsonify({"status": "error", "message": "Missing Merchant ID"}), 400
 
-        # Get the row in sheet1 by MerchantRequestID
-        row = sheet.find(merchant_id).row
-        duration = str(sheet.cell(row, 2).value).strip().lower()
+        # Connect to sheet2 (assuming already authorized)
+        sheet2 = client.open("Tiziki WiFi Data").worksheet("hours" if "hour" in merchant_id.lower() else "days")
+        vouchers = sheet2.get_all_records()
 
-        # ✅ DEBUG PRINTS
-        print(f"Looking for: '{duration}'")
-        for i, v in enumerate(vouchers, start=2):
-            print(f"Row {i}: Duration='{v.get('Duration')}', Used='{v.get('Used')}'")
+        duration_row = None
+        for idx, row in enumerate(vouchers, start=2):
+            if not str(row.get("Used")).strip().lower() == "true":
+                duration_row = idx
+                break
 
-        for i, v in enumerate(vouchers, start=2):
-            voucher_duration = str(v.get("Duration")).strip().lower()
-            used = str(v.get("Used")).strip().lower()
-            if voucher_duration == duration and used not in ["true", "yes"]:
-                code = v.get("Code")
-                voucher_sheet.update_cell(i, 3, "TRUE")
-                sheet.update_cell(row, 10, code)
-                sheet.update_cell(row, 11, "linked")
-                return jsonify({"status": "success", "voucher": code})
+        if not duration_row:
+            return jsonify({"status": "error", "message": "No voucher available"}), 404
 
-        return jsonify({"status": "error", "message": "No available voucher found"}), 404
+        voucher = sheet2.cell(duration_row, 1).value  # Assuming voucher code is in first column
+        sheet2.update_cell(duration_row, 2, "TRUE")   # Mark as used (assuming Used column is 2)
+        
+        # Update main sheet to mark it linked
+        if sheet:
+            cell = sheet.find(merchant_id)
+            sheet.update_cell(cell.row, 9, "Linked")  # Assuming Column I holds status
+            sheet.update_cell(cell.row, 10, voucher)  # Optional: Store the actual voucher code
+
+        return jsonify({"status": "success", "voucher": voucher})
 
     except Exception as e:
-        print("❌ Voucher assignment error:", e)
+        print("❌ assign_voucher error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route('/assign_voucher', methods=['POST'])
+def alias_assign_voucher():
+    return assign_voucher_from_sheet2()
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)
