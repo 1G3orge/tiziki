@@ -274,7 +274,7 @@ def check_status():
         print("❌ /check_status error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/assign_voucher_from_sheet2', methods=['POST', 'OPTIONS'])
+@app.route('/assign_voucher', methods=['POST'])
 def assign_voucher():
     try:
         data = request.get_json()
@@ -284,7 +284,7 @@ def assign_voucher():
             return jsonify({"status": "error", "message": "Missing Merchant ID"}), 400
 
         # Connect to sheet2 (assuming already authorized)
-        sheet2 = client.open("Tiziki WiFi Data").worksheet("hours" if "hour" in merchant_id.lower() else "days")
+        sheet2 = client.open("Tiziki WiFi Data").worksheet("hours" if "hours" in merchant_id.lower() else "days")
         vouchers = sheet2.get_all_records()
 
         duration_row = None
