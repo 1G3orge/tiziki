@@ -274,7 +274,7 @@ def check_status():
         print("❌ /check_status error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/assign_voucher', methods=['POST', 'OPTIONS'])
+@app.route('/assign_voucher_from_sheet2', methods=['POST', 'OPTIONS'])
 def assign_voucher():
     try:
         data = request.get_json()
