@@ -289,14 +289,13 @@ def assign_voucher():
         if not sheet:
             return jsonify({"status": "error", "message": "Main sheet unavailable"}), 500
         
-        # Search for MerchantRequestID in Column I (9th column, 1-indexed)
         cells = sheet.findall(merchant_request_id)
-        cell = next((c for c in cells if c.col == 9), None)  # Find first match in Column I
+        cell = next((c for c in cells if c.col == 9), None)
         if not cell:
-            print(f"❌ MerchantRequestID {merchant_request_id} not found in Column I of main sheet")
+            print(f"❌ MerchantRequestID {merchant_request_id} not found in Column I")
             return jsonify({"status": "error", "message": "MerchantRequestID not found in main sheet"}), 404
         
-        duration = sheet.cell(cell.row, 2).value.lower()  # Column B: Duration (e.g., "2 hours")
+        duration = sheet.cell(cell.row, 2).value.lower()
         voucher_type = "hours" if "hours" in duration else "days"
         print(f"🔍 Determined voucher_type: {voucher_type} from duration: {duration}")
 
@@ -307,12 +306,16 @@ def assign_voucher():
         duration_row = None
         for idx, row in enumerate(vouchers, start=2):
             used_status = str(row.get("Used", "")).strip().lower()
+            voucher_duration = str(row.get("Duration", "")).strip().lower()
+            voucher_code = row.get("Voucher", "Unknown")
+            print(f"🔎 Checking voucher {voucher_code}: Duration={voucher_duration}, Used={used_status}")
+            
             if used_status == "true":
-                print(f"⏭️ Skipping voucher {row.get('Voucher')} (Used: TRUE)")
+                print(f"⏭️ Skipping voucher {voucher_code} (Used: TRUE)")
                 continue
-            if row.get("Duration", "").lower() == voucher_type:
+            if voucher_duration == voucher_type:  # Exact match for now
                 duration_row = idx
-                print(f"✅ Found unused voucher {row.get('Voucher')} for {voucher_type}")
+                print(f"✅ Found unused voucher {voucher_code} for {voucher_type}")
                 break
 
         if not duration_row:
@@ -323,15 +326,14 @@ def assign_voucher():
         sheet2.update_cell(duration_row, 3, "TRUE")
         print(f"✅ Assigned voucher: {voucher}")
 
-        sheet.update_cell(cell.row, 9, "Linked")  # Column I: Update status
-        sheet.update_cell(cell.row, 10, voucher)  # Column J: Store voucher
+        sheet.update_cell(cell.row, 9, "Linked")
+        sheet.update_cell(cell.row, 10, voucher)
 
         return jsonify({"status": "success", "voucher": voucher})
 
     except Exception as e:
         print("❌ assign_voucher error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)  
