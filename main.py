@@ -1,18 +1,32 @@
-from flask import Flask, request, jsonify
+from flask import Flask, render_template, request, jsonify
+import os
 import requests
 import base64
 from datetime import datetime
 from flask_cors import CORS
 import gspread
 from google.oauth2.service_account import Credentials
-import os
 import json
 import threading
 import time
 
-app = Flask(__name__)
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, 'template'),
+    static_folder=os.path.join(BASE_DIR, 'static')
+)
 CORS(app)  # Enable CORS
 
+
+
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+
+    
 # ✅ M-Pesa Configuration (Live)
 MPESA_BASE_URL = "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
 TRANSACTION_STATUS_URL = "https://api.safaricom.co.ke/mpesa/transactionstatus/v1/query"
@@ -26,6 +40,12 @@ CONSUMER_SECRET = "6B6N674G2LYva5h4rueE7tisiKmAhePGW3SRBQCtZg8i0YWArS5ihtcpFnAJ8
 INITIATOR_NAME = "testapiuser"
 SECURITY_CREDENTIAL = "ClONZiMYBpc65lmpJ7nvnrDmUe0WvHvA5QbOsPjEo92B6IGFwDdvdeJIFL0kgwsEKWu6SQKG4ZZUxjC"
 
+# Omada Controller Credentials
+OMADA_IP = "https://5.14.32.56:8043"
+OMADA_USERNAME = "Georges"
+OMADA_PASSWORD = "J0j1$3@1"
+
+
 # ✅ Google Sheets Logging
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -34,13 +54,22 @@ SCOPES = [
 SHEET_NAME = "Tiziki WiFi Data"
 
 try:
-    SERVICE_ACCOUNT_INFO = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
-    creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
+    if os.getenv("GOOGLE_CREDS_JSON"):
+        print("🔐 Using environment variable credentials")
+        SERVICE_ACCOUNT_INFO = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
+        creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
+    else:
+        print("📁 Using local JSON file: tizikidatagoogle.json")
+        creds = Credentials.from_service_account_file("tizikidatagoogle.json", scopes=SCOPES)
+
     client = gspread.authorize(creds)
     sheet = client.open(SHEET_NAME).sheet1
+
 except Exception as e:
     print("❌ Error connecting to Google Sheets:", e)
     sheet = None
+
+
 
 def get_access_token():
     try:
@@ -275,6 +304,46 @@ def check_status():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+# Function to assign voucher to a client MAC
+def assign_voucher_to_mac(voucher_code, client_mac, ssid):
+    omada_url = OMADA_IP
+    login_url = f"{omada_url}/api/v2/login"
+    apply_voucher_url = f"{omada_url}/api/v2/hotspot/extportal/authorize"
+
+    session = requests.Session()
+    session.verify = False
+
+    try:
+        login_payload = {
+            "username": OMADA_USERNAME,
+            "password": OMADA_PASSWORD
+        }
+        login_res = session.post(login_url, json=login_payload)
+        print("🔐 Login Response:", login_res.text)
+        if login_res.status_code != 200 or login_res.json().get("errorCode") != 0:
+            return {"status": "error", "message": "Failed to log in to Omada", "response": login_res.text}
+
+        voucher_payload = {
+            "clientMac": client_mac,
+            "authType": "voucher",
+            "voucher": voucher_code,
+            "ssid": ssid or "TizikiWiFi"
+        }
+
+        auth_res = session.post(apply_voucher_url, json=voucher_payload)
+        auth_json = auth_res.json()
+        print("📡 Voucher Apply Response:", auth_json)
+
+        if auth_json.get("errorCode") == 0:
+            return {"status": "success", "message": "Voucher assigned successfully"}
+        else:
+            return {"status": "error", "message": "Failed to assign voucher", "details": auth_json}
+
+    except Exception as e:
+        print("❌ Exception in assign_voucher_to_mac:", e)
+        return {"status": "error", "message": str(e)}
+
+# Modify /assign_voucher to include voucher assignment
 @app.route('/assign_voucher', methods=['POST'])
 def assign_voucher():
     try:
@@ -288,15 +357,14 @@ def assign_voucher():
 
         if not sheet:
             return jsonify({"status": "error", "message": "Main sheet unavailable"}), 500
-        
-        # Find the transaction in the main sheet
+
         cells = sheet.findall(merchant_request_id)
         cell = next((c for c in cells if c.col == 9), None)
         if not cell:
             print(f"❌ MerchantRequestID {merchant_request_id} not found in Column I")
             return jsonify({"status": "error", "message": "MerchantRequestID not found in main sheet"}), 404
-        
-        duration = sheet.cell(cell.row, 2).value.strip().lower()  # e.g., "1 hours"
+
+        duration = sheet.cell(cell.row, 2).value.strip().lower()
         voucher_type = "hours" if "hours" in duration else "days"
         print(f"🔍 Determined voucher_type: {voucher_type} from duration: {duration}")
 
@@ -304,21 +372,20 @@ def assign_voucher():
         vouchers_raw = sheet2.get_all_records()
         print(f"📋 Found {len(vouchers_raw)} vouchers in sheet2")
 
-        # Normalize column headers
         vouchers = [
             {k.strip().lower(): v for k, v in row.items()}
             for row in vouchers_raw
         ]
 
         duration_row = None
-        for idx, row in enumerate(vouchers, start=2):  # start=2 because headers are in row 1
+        for idx, row in enumerate(vouchers, start=2):
             used_status = str(row.get("used", "")).strip().lower()
             voucher_duration = str(row.get("duration", "")).strip().lower().replace(" ", "")
             voucher_type_clean = voucher_type.replace(" ", "")
             voucher_code = row.get("voucher", "Unknown")
 
             print(f"🔎 Checking voucher {voucher_code}: Duration={voucher_duration}, Used={used_status}")
-            
+
             if used_status == "true":
                 print(f"⏭️ Skipping voucher {voucher_code} (Used: TRUE)")
                 continue
@@ -332,23 +399,33 @@ def assign_voucher():
             print(f"❌ No unused {voucher_type} vouchers available")
             return jsonify({"status": "error", "message": f"No unused {voucher_type} voucher available"}), 404
 
-        # Get and update voucher
         voucher = sheet2.cell(duration_row, 1).value
         try:
-            sheet2.update_cell(duration_row, 3, "TRUE")  # Mark as used
+            sheet2.update_cell(duration_row, 3, "TRUE")
             print(f"✅ Marked voucher {voucher} as used in sheet2")
         except Exception as e:
             print(f"❌ Failed to update sheet2 (mark used): {e}")
             return jsonify({"status": "error", "message": "Failed to mark voucher as used"}), 500
 
         try:
-            sheet.update_cell(cell.row, 9, "Linked")      # Column I
-            sheet.update_cell(cell.row, 10, voucher)      # Column J
+            sheet.update_cell(cell.row, 9, "Linked")
+            sheet.update_cell(cell.row, 10, voucher)
             print(f"✅ Linked voucher {voucher} to main sheet row {cell.row}")
         except Exception as e:
             print(f"❌ Failed to update main sheet: {e}")
             return jsonify({"status": "error", "message": "Failed to update main sheet"}), 500
 
+        assign_result = assign_voucher_to_mac(
+            voucher,
+            data.get("client_mac", ""),
+            data.get("ssid", "")
+        )
+
+        if assign_result["status"] != "success":
+            print("❌ Omada API failed to assign voucher:", assign_result)
+            return jsonify({"status": "error", "message": assign_result["message"], "details": assign_result.get("details")}), 500
+
+        print(f"✅ Voucher {voucher} successfully assigned via Omada API")
         return jsonify({"status": "success", "voucher": voucher})
 
     except Exception as e:
@@ -357,4 +434,4 @@ def assign_voucher():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=8080)  
+    app.run(debug=True, host="0.0.0.0", port=5050)  
